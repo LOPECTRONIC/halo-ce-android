@@ -755,9 +755,9 @@ BOOL platform_video_initialize(unsigned long width, unsigned long height)
 	(void)version;
 	platform_event_thread = SDL_GetCurrentThreadID();
 	platform_log("OpenGL %s on %s", (const char *)glGetString(GL_VERSION), (const char *)glGetString(GL_RENDERER));
-#ifndef HALO_ANDROID
+
 	platform_mouse_capture(TRUE);
-#endif
+
 	return TRUE;
 }
 
@@ -1360,10 +1360,10 @@ void platform_pump_events(void)
 		case SDL_EVENT_WINDOW_FOCUS_GAINED:
 			input_state.focused = TRUE;
 			look_at_clipboard = TRUE;
-#ifndef HALO_ANDROID
+
 			if (!input_state.mouse_released && !input_state.ui_pointer)
 				platform_mouse_capture(TRUE);
-#endif
+
 			break;
 		case SDL_EVENT_GAMEPAD_ADDED:
 			SDL_OpenGamepad(event.gdevice.which);
