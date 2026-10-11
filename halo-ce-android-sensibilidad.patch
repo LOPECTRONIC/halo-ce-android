@@ -1,0 +1,484 @@
+--- a/port/android/README.md
++++ b/port/android/README.md
+@@ -154,7 +154,7 @@
+   **Export** and **Import** retain Android's document picker. The button
+   manager lets you hide/show, duplicate and add buttons, including restoring
+   the movement stick. Reset requires confirmation. Size sliders range from
+-  50% to 200%; look sensitivity ranges from 0.25x to 4x. All controls,
++  50% to 200%; look sensitivity ranges from 0.25x to 20x. All controls,
+   including copies, can be reached by scrolling without Previous/Next pages.
+ - **General** contains **Rumble**, **Gyroscope**, **Gyroscope sensitivity**,
+   **FPS counter** and **Field of view (FOV)**. FOV uses a 55Ã¢â‚¬â€œ90 degree slider
+@@ -164,6 +164,14 @@
+   horizontal slider from 0.25x to 4x, independent of swipe look sensitivity.
+   Gyro handles both landscape orientations. FPS measures presented game
+   frames over half-second intervals and displays during gameplay.
++- **Aim sensitivity** (new) contains separate sliders for **Gamepad** (levels
++  1-30), **Touch screen** (0.25x-20x) and **Mouse** (0.25x-30x).
++  The gamepad and mouse start at **game setting**, preserving existing profiles
++  and mouse configuration until adjusted in this menu; dragging fully left
++  restores the original in-game setting. Mouse override applies to both axes.
++  Gamepad speeds 1-10 retain the original engine curve, extended to 30; 30 is
++  a speed level, not a 30-fold rate multiplier. Existing overlay layouts still
++  import without changes. See `docs/android_aim_sensitivity.md` for details.
+ - **Cheats** in the main menu selects startup cheats in a dedicated `init.txt`
+   block, with all sixteen disabled initially and other file contents preserved.
+   Flags apply after player spawn; instant actions run once per map (teleport
+@@ -186,7 +194,7 @@
+ Swipe aiming uses the same **Look sensitivity** setting as the player camera
+ (default **2x** for new configurations; existing preferences are preserved).
+ The sensitivity slider can be dragged beyond either edge to reach its full
+-0.25xâ€“4x range. Fire/Grenade control vertical camera movement.
++0.25x–20x range. Fire/Grenade control vertical camera movement.
+ 
+ Version 4 `.halolayout` files include the Camera mode control. Imports of
+ versions 1Ã¢â‚¬â€œ3 insert it without losing existing positions or button copies.
+--- a/port/android/app/src/main/java/com/halo/decomp/TouchControls.java
++++ b/port/android/app/src/main/java/com/halo/decomp/TouchControls.java
+@@ -95,9 +95,15 @@
+     private int lookPointer = -1;
+     private float lookX, lookY;
+     private float sensitivity;
++    // Zero means the original in-game setting remains in control.
++    private float gamepadSensitivity, mouseSensitivity;
++    private static final float TOUCH_MAX_SENSITIVITY = 20f;
++    private static final float GAMEPAD_MAX_SENSITIVITY = 30f;
++    private static final float MOUSE_MAX_SENSITIVITY = 30f;
+     private float logicalWidth = 960, logicalHeight = 540;
+     private static native void nativeLook(float dx, float dy);
+     private static native void nativeLookReset();
++    private static native void nativeAimSensitivity(float gamepad, float mouse);
+     private static native void nativeCameraMode();
+     private static native boolean nativeCheatRequest(int id, boolean enabled);
+     private static native int nativeCheatStatus(int id);
+@@ -146,7 +152,13 @@
+                                       preferences.getFloat("y"+i, layout.y(i)));
+         }
+         sensitivity = preferences.getFloat("look-sensitivity", sensitivity > 0 ? sensitivity : 2f);
+-        if (!Float.isFinite(sensitivity) || sensitivity < 0.25f || sensitivity > 4f) sensitivity = 2f;
++        if (!Float.isFinite(sensitivity) || sensitivity < 0.25f || sensitivity > TOUCH_MAX_SENSITIVITY) sensitivity = 2f;
++        gamepadSensitivity = preferences.getFloat("gamepad-sensitivity", 0f);
++        mouseSensitivity = preferences.getFloat("mouse-sensitivity", 0f);
++        if (!Float.isFinite(gamepadSensitivity) || gamepadSensitivity != 0f &&
++                (gamepadSensitivity < 1f || gamepadSensitivity > GAMEPAD_MAX_SENSITIVITY)) gamepadSensitivity = 0f;
++        if (!Float.isFinite(mouseSensitivity) || mouseSensitivity != 0f &&
++                (mouseSensitivity < 0.25f || mouseSensitivity > MOUSE_MAX_SENSITIVITY)) mouseSensitivity = 0f;
+         setFocusable(false);
+         setContentDescription("Halo touch controller");
+         setOnApplyWindowInsetsListener((view, insets) -> {
+@@ -467,7 +479,7 @@
+             return;
+         } else if (action == 90) {
+             if (menuPage == 1) menuPage = 0;
+-            else if (menuPage == 2 || menuPage == 3 || menuPage == 6) menuPage = 1;
++            else if (menuPage == 2 || menuPage == 3 || menuPage == 6 || menuPage == 14) menuPage = 1;
+             else if (menuPage == 5 || menuPage == 13) menuPage = 3;
+             else if (menuPage == 9 || menuPage == 10 || menuPage == 11) menuPage = 7;
+             else if (menuPage == 12) menuPage = 8;
+@@ -488,9 +500,20 @@
+         else if (action == 31) { layout.gyroscopeEnabled = !layout.gyroscopeEnabled; updateSensors(); saveLayout(); }
+         else if (action == 32) { layout.fpsCounter = !layout.fpsCounter; saveLayout(); }
+         else if (action == 40 || action == 41) {
+-            float amount = 0.25f+Math.max(0, Math.min(1000, value))*3.75f/1000;
++            float maximum = action == 40 ? TOUCH_MAX_SENSITIVITY : 4f;
++            float amount = 0.25f+Math.max(0, Math.min(1000, value))*(maximum-0.25f)/1000f;
+             if (action == 40) sensitivity = amount; else layout.gyroscopeSensitivity = amount;
+             saveLayout();
++        } else if (action == 44 || action == 45) {
++            // The left endpoint clears the override and restores the game's own setting.
++            int progress = Math.max(0, Math.min(1000, value));
++            float minimum = action == 44 ? 1f : 0.25f;
++            float maximum = action == 44 ? GAMEPAD_MAX_SENSITIVITY : MOUSE_MAX_SENSITIVITY;
++            float amount = progress == 0 ? 0f : minimum+(progress-1)*(maximum-minimum)/999f;
++            if (action == 44) gamepadSensitivity = amount; else mouseSensitivity = amount;
++            nativeAimSensitivity(gamepadSensitivity, mouseSensitivity);
++            preferences.edit().putFloat("gamepad-sensitivity", gamepadSensitivity)
++                .putFloat("mouse-sensitivity", mouseSensitivity).apply();
+         } else if (action == 42) {
+             layout.setSize(selectedControl, 0.5f+Math.max(0, Math.min(1000, value))*1.5f/1000); saveLayout();
+         } else { menuPage = action; }
+@@ -514,7 +537,7 @@
+         };
+         String title = "Porting options";
+         if (menuPage == 1) {
+-            row.accept("Overlay settings", 2); row.accept("General", 3); row.accept("Cheats", 6);
++            row.accept("Overlay settings", 2); row.accept("General", 3); row.accept("Aim sensitivity", 14); row.accept("Cheats", 6);
+         } else if (menuPage == 2) {
+             title = "Overlay settings";
+             row.accept("Edit buttons layout", 12); row.accept("Hide or add buttons", 7);
+@@ -527,6 +550,18 @@
+             row.accept("Gyroscope: "+(gyroscope == null ? "unavailable" : layout.gyroscopeEnabled ? "ON" : "OFF"), gyroscope == null ? 0 : 31);
+             row.accept("Gyroscope sensitivity", 5); row.accept("FPS counter: "+(layout.fpsCounter ? "ON" : "OFF"), 32);
+             row.accept("Field of view (FOV)", 13);
++        } else if (menuPage == 14) {
++            title = "Aim sensitivity";
++            row.accept(String.format(java.util.Locale.US, "Gamepad: %s",
++                gamepadSensitivity == 0f ? "game setting" : String.format(java.util.Locale.US, "level %.2f", gamepadSensitivity)), 44);
++            values.set(0, gamepadSensitivity == 0f ? 0 : 1+Math.round((gamepadSensitivity-1f)/
++                (GAMEPAD_MAX_SENSITIVITY-1f)*999f));
++            row.accept(String.format(java.util.Locale.US, "Touch screen: %.2fx", sensitivity), 40);
++            values.set(1, Math.round((sensitivity-0.25f)/(TOUCH_MAX_SENSITIVITY-0.25f)*1000f));
++            row.accept(String.format(java.util.Locale.US, "Mouse: %s",
++                mouseSensitivity == 0f ? "game setting" : String.format(java.util.Locale.US, "%.2fx", mouseSensitivity)), 45);
++            values.set(2, mouseSensitivity == 0f ? 0 : 1+Math.round((mouseSensitivity-0.25f)/
++                (MOUSE_MAX_SENSITIVITY-0.25f)*999f));
+         } else if (menuPage == 13) {
+             title = "Field of view (FOV)";
+             row.accept(String.format(java.util.Locale.US, "FOV: %.0f degrees", layout.fieldOfView), 43);
+@@ -537,7 +572,8 @@
+             float amount = size ? layout.sizeScale(selectedControl) : menuPage == 4 ? sensitivity : layout.gyroscopeSensitivity;
+             row.accept(String.format(java.util.Locale.US, size ? "%s: %.0f%%" : "%s: %.2fx",
+                 size ? controlName(layout.type(selectedControl)) : title, size ? amount*100 : amount), size ? 42 : menuPage == 4 ? 40 : 41);
+-            values.set(0, Math.round((amount-(size ? 0.5f : 0.25f))/(size ? 1.5f : 3.75f)*1000));
++            values.set(0, Math.round((amount-(size ? 0.5f : 0.25f))/
++                (size ? 1.5f : menuPage == 4 ? TOUCH_MAX_SENSITIVITY-0.25f : 3.75f)*1000));
+         } else if (menuPage == 6) {
+             title = menuContext == 1 ? "Startup cheats" : "Cheats";
+             for (int i = 0; i < CHEATS.length; i++) {
+@@ -597,6 +633,7 @@
+     public void startDeviceInput() {
+         if (deviceInputActive) return;
+         deviceInputActive = true;
++        nativeAimSensitivity(gamepadSensitivity, mouseSensitivity);
+         nativeFieldOfView(layout.fieldOfView);
+         gyroAim.reset(); updateSensors(); post(rumblePoll); post(menuPoll);
+     }
+--- a/port/android/app/src/main/java/com/halo/decomp/TouchLayout.java
++++ b/port/android/app/src/main/java/com/halo/decomp/TouchLayout.java
+@@ -102,7 +102,7 @@
+     }
+ 
+     String exportConfiguration(float sensitivity) {
+-        if (!validSensitivity(sensitivity) || !validSensitivity(gyroscopeSensitivity)) throw new IllegalArgumentException("Invalid sensitivity");
++        if (!validLookSensitivity(sensitivity) || !validGyroscopeSensitivity(gyroscopeSensitivity)) throw new IllegalArgumentException("Invalid sensitivity");
+         Properties values = new Properties();
+         values.setProperty("format", "halo-touch-layout");
+         values.setProperty("version", "4");
+@@ -136,7 +136,11 @@
+         }
+     }
+ 
+-    private static boolean validSensitivity(float value) {
++    private static boolean validLookSensitivity(float value) {
++        return Float.isFinite(value) && value >= 0.25f && value <= 20f;
++    }
++
++    private static boolean validGyroscopeSensitivity(float value) {
+         return Float.isFinite(value) && value >= 0.25f && value <= 4f;
+     }
+ 
+@@ -151,7 +155,7 @@
+                 throw new IllegalArgumentException("Unsupported layout file");
+             int count = Integer.parseInt(values.getProperty("count"));
+             float sensitivity = Float.parseFloat(values.getProperty("sensitivity"));
+-            if (count < 18 || count > MAX_CONTROLS || !validSensitivity(sensitivity))
++            if (count < 18 || count > MAX_CONTROLS || !validLookSensitivity(sensitivity))
+                 throw new IllegalArgumentException("Invalid layout settings");
+             TouchLayout layout = new TouchLayout();
+             layout.controls.clear();
+@@ -167,7 +171,7 @@
+                 if ("3".equals(version) || "4".equals(version)) {
+                     layout.fpsCounter = readBoolean(values, "fps-counter");
+                     layout.gyroscopeSensitivity = Float.parseFloat(values.getProperty("gyroscope-sensitivity"));
+-                    if (!validSensitivity(layout.gyroscopeSensitivity))
++                    if (!validGyroscopeSensitivity(layout.gyroscopeSensitivity))
+                         throw new IllegalArgumentException("Invalid gyroscope sensitivity");
+                 }
+             }
+--- a/port/android/guest/runtime/guest_host.h
++++ b/port/android/guest/runtime/guest_host.h
+@@ -79,6 +79,8 @@
+ void host_touch_look_read(float *delta);
+ int host_touch_camera_read(void);
+ float host_touch_field_of_view(void);
++float host_touch_gamepad_sensitivity(void);
++float host_touch_mouse_sensitivity(void);
+ unsigned int host_touch_cheats_read(int *commands);
+ void host_touch_cheat_result(int id, int status);
+ void host_touch_cheat_sync(int id, int active);
+--- a/port/android/host/host_touch.c
++++ b/port/android/host/host_touch.c
+@@ -21,6 +21,38 @@
+ static int frame_count, frame_fps;
+ static struct timespec frame_time;
+ static float field_of_view = 70.0f;
++/* A zero override defers to the original saved profile/config.toml setting. */
++static float gamepad_sensitivity_override, mouse_sensitivity_override;
++
++JNIEXPORT void JNICALL Java_com_halo_decomp_TouchControls_nativeAimSensitivity(
++    JNIEnv *env, jclass cls, jfloat gamepad, jfloat mouse)
++{
++    (void)env; (void)cls;
++    if (!(gamepad == 0.0f || (gamepad >= 1.0f && gamepad <= 30.0f)) ||
++        !(mouse == 0.0f || (mouse >= 0.25f && mouse <= 30.0f))) return;
++    pthread_mutex_lock(&touch_lock);
++    gamepad_sensitivity_override = gamepad;
++    mouse_sensitivity_override = mouse;
++    pthread_mutex_unlock(&touch_lock);
++}
++
++float host_touch_gamepad_sensitivity(void)
++{
++    float value;
++    pthread_mutex_lock(&touch_lock);
++    value = gamepad_sensitivity_override;
++    pthread_mutex_unlock(&touch_lock);
++    return value;
++}
++
++float host_touch_mouse_sensitivity(void)
++{
++    float value;
++    pthread_mutex_lock(&touch_lock);
++    value = mouse_sensitivity_override;
++    pthread_mutex_unlock(&touch_lock);
++    return value;
++}
+ 
+ JNIEXPORT void JNICALL Java_com_halo_decomp_TouchControls_nativeFieldOfView(
+     JNIEnv *env, jclass cls, jfloat degrees)
+@@ -72,7 +104,7 @@
+ void host_porting_action(int revision, int action, int value)
+ {
+     pthread_mutex_lock(&touch_lock);
+-    int slider = action >= 40 && action <= 43;
++    int slider = action >= 40 && action <= 45;
+     int valid_slider = 0;
+     if (slider && porting_menu.page) {
+         for (int i = 0; i < porting_menu.count; ++i)
+--- a/port/android/host_imports.list
++++ b/port/android/host_imports.list
+@@ -37,6 +37,8 @@
+ host_touch_camera_read
+ host_touch_look_read
+ host_touch_field_of_view
++host_touch_gamepad_sensitivity
++host_touch_mouse_sensitivity
+ host_touch_cheats_read
+ host_touch_cheat_result
+ host_touch_cheat_sync
+--- a/port/assets/menus/ce/main_menu.settings_select.player_setup.player_profile_edit.gamepad_setup.xml
++++ b/port/assets/menus/ce/main_menu.settings_select.player_setup.player_profile_edit.gamepad_setup.xml
+@@ -34,7 +34,7 @@
+ 	</widget>
+ 	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gamepad_setup/look_sensitivity_label" type="text" controller="1" width="300" height="22" string_list="main_menu/settings_select/player_setup/player_profile_edit/gamepad_setup/labels" string_index="0" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+ 	</widget>
+-	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gamepad_setup/look_sensitivity_spinner" type="spinner" left="3" top="2" width="147" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="1|2|3|4|5|6|7|8|9|10" setting="profile.look_sensitivity" values="1|2|3|4|5|6|7|8|9|10" font="ui\large_ui" color="#FF2896FF" align="center" text_y="1" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -6 19 0" footer_bounds="7 150 19 156">
++	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gamepad_setup/look_sensitivity_spinner" type="spinner" left="3" top="2" width="147" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="1|2|3|4|5|6|7|8|9|10|11|12|13|14|15|16|17|18|19|20|21|22|23|24|25|26|27|28|29|30" setting="profile.look_sensitivity" values="1|2|3|4|5|6|7|8|9|10|11|12|13|14|15|16|17|18|19|20|21|22|23|24|25|26|27|28|29|30" font="ui\large_ui" color="#FF2896FF" align="center" text_y="1" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -6 19 0" footer_bounds="7 150 19 156">
+ 		<on event="created" run="port setting load"/>
+ 	</widget>
+ 	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gamepad_setup/op_invert_look" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
+--- a/port/assets/menus/ce/main_menu.settings_select.player_setup.player_profile_edit.mouse_settings.xml
++++ b/port/assets/menus/ce/main_menu.settings_select.player_setup.player_profile_edit.mouse_settings.xml
+@@ -30,7 +30,7 @@
+ 	</widget>
+ 	<widget name="main_menu/settings_select/player_setup/player_profile_edit/mouse_settings/mouse_sensitivity_label" type="text" controller="1" width="300" height="22" string_list="main_menu/settings_select/player_setup/player_profile_edit/mouse_settings/labels" string_index="0" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+ 	</widget>
+-	<widget name="main_menu/settings_select/player_setup/player_profile_edit/mouse_settings/mouse_sensitivity_spinner" type="spinner" left="3" top="2" width="147" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="0.25|0.5|0.75|1|1.25|1.5|1.75|2|2.5|3|4" setting="input.mouse_sensitivity" values="0.25|0.5|0.75|1|1.25|1.5|1.75|2|2.5|3|4" font="ui\large_ui" color="#FF2896FF" align="center" text_y="1" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -6 19 0" footer_bounds="7 150 19 156">
++	<widget name="main_menu/settings_select/player_setup/player_profile_edit/mouse_settings/mouse_sensitivity_spinner" type="spinner" left="3" top="2" width="147" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="0.25|0.5|0.75|1|1.25|1.5|1.75|2|2.5|3|4|5|6|7|8|9|10|12|15|20|25|30" setting="input.mouse_sensitivity" values="0.25|0.5|0.75|1|1.25|1.5|1.75|2|2.5|3|4|5|6|7|8|9|10|12|15|20|25|30" font="ui\large_ui" color="#FF2896FF" align="center" text_y="1" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -6 19 0" footer_bounds="7 150 19 156">
+ 		<on event="created" run="port setting load"/>
+ 	</widget>
+ 	<widget name="main_menu/settings_select/player_setup/player_profile_edit/mouse_settings/op_mouse_vertical_sensitivity" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
+@@ -39,7 +39,7 @@
+ 	</widget>
+ 	<widget name="main_menu/settings_select/player_setup/player_profile_edit/mouse_settings/mouse_vertical_sensitivity_label" type="text" controller="1" width="300" height="22" string_list="main_menu/settings_select/player_setup/player_profile_edit/mouse_settings/labels" string_index="1" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+ 	</widget>
+-	<widget name="main_menu/settings_select/player_setup/player_profile_edit/mouse_settings/mouse_vertical_sensitivity_spinner" type="spinner" left="3" top="2" width="147" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="SAME|0.25|0.5|0.75|1|1.25|1.5|1.75|2|2.5|3|4" setting="input.mouse_vertical_sensitivity" values="0|0.25|0.5|0.75|1|1.25|1.5|1.75|2|2.5|3|4" font="ui\large_ui" color="#FF2896FF" align="center" text_y="1" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -6 19 0" footer_bounds="7 150 19 156">
++	<widget name="main_menu/settings_select/player_setup/player_profile_edit/mouse_settings/mouse_vertical_sensitivity_spinner" type="spinner" left="3" top="2" width="147" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="SAME|0.25|0.5|0.75|1|1.25|1.5|1.75|2|2.5|3|4|5|6|7|8|9|10|12|15|20|25|30" setting="input.mouse_vertical_sensitivity" values="0|0.25|0.5|0.75|1|1.25|1.5|1.75|2|2.5|3|4|5|6|7|8|9|10|12|15|20|25|30" font="ui\large_ui" color="#FF2896FF" align="center" text_y="1" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -6 19 0" footer_bounds="7 150 19 156">
+ 		<on event="created" run="port setting load"/>
+ 	</widget>
+ 	<widget name="main_menu/settings_select/player_setup/player_profile_edit/mouse_settings/op_invert_mouse" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
+--- a/port/shared/src/xinput_sdl.c
++++ b/port/shared/src/xinput_sdl.c
+@@ -165,8 +165,23 @@
+ #endif
+ 	if (x == 0.0f && y == 0.0f)
+ 		return *yaw != 0.0f || *pitch != 0.0f;
++#ifdef HALO_ANDROID
++    /* Android's Porting options can override the old mouse setting, in both axes.
++       Zero preserves config.toml and its separate vertical preference. */
++    {
++        float override = host_touch_mouse_sensitivity();
++        if (override > 0.0f) {
++            *yaw += -x * scale * override;
++            *pitch += (invert ? y : -y) * scale * override;
++        } else {
++            *yaw += -x * scale * mouse_sensitivity();
++            *pitch += (invert ? y : -y) * scale * vertical_sensitivity;
++        }
++    }
++#else
+ 	*yaw += -x * scale * mouse_sensitivity();
+ 	*pitch += (invert ? y : -y) * scale * vertical_sensitivity;
++#endif
+ 	return TRUE;
+ }
+ 
+--- a/source/game/player_control.c
++++ b/source/game/player_control.c
+@@ -1118,6 +1118,21 @@
+ 				}
+ 			}
+ 
++#ifdef HALO_ANDROID
++            /* Absolute sensitivity 1..30, matching the controller profile's
++               turn-rate curve. Zero leaves the original saved profile in charge.
++               This affects sticks only, not direct touch/mouse aiming. */
++            if (gamepad_index == 0)
++            {
++                extern float host_touch_gamepad_sensitivity(void);
++                real override = host_touch_gamepad_sensitivity();
++                if (override >= 1.f && override <= 30.f)
++                {
++                    look_yaw_rate = DEGREES_TO_RADIANS(60.f + 20.f*override)/TICKS_PER_SECOND;
++                    look_pitch_rate = DEGREES_TO_RADIANS(30.f + 10.f*override)/TICKS_PER_SECOND;
++                }
++            }
++#endif
+ 			input->throttle.i = input_state->forward_movement;
+ 			input->throttle.j = input_state->strafe;
+ 			{
+--- a/source/interface/player_ui.c
++++ b/source/interface/player_ui.c
+@@ -1015,16 +1015,7 @@
+ 	short local_player_index)
+ {
+ 	struct game_input_preferences preferences = { 0 };
+-	real pitch_rate_table[NUMBER_OF_LOOK_SENSITIVITY_SETTINGS] =
+-	{
+-		40.0f, 50.0f, 60.0f, 70.0f, 80.0f,
+-		90.0f, 100.0f, 110.0f, 120.0f, 130.0f
+-	};
+-	real yaw_rate_table[NUMBER_OF_LOOK_SENSITIVITY_SETTINGS] =
+-	{
+-		80.0f, 100.0f, 120.0f, 140.0f, 160.0f,
+-		180.0f, 200.0f, 220.0f, 240.0f, 260.0f
+-	};
++	/* Preserve the original ten speeds and continue the same curve to 30. */
+ 	struct player_profile_controller_settings *controls;
+ 	long look_sensitivity;
+ 	long yaw_index;
+@@ -1061,8 +1052,8 @@
+ 			yaw_index = NUMBER_OF_LOOK_SENSITIVITY_SETTINGS - 1;
+ 	}
+ 
+-	preferences.pitch_rate = pitch_rate_table[pitch_index];
+-	preferences.yaw_rate = yaw_rate_table[(short)yaw_index];
++	preferences.pitch_rate = 40.0f + 10.0f * pitch_index;
++	preferences.yaw_rate = 80.0f + 20.0f * (short)yaw_index;
+ 	preferences.joystick_controls = controls->joystick_preset > _joystick_preset_legacy_south_paw ?
+ 		_joystick_preset_legacy_south_paw : controls->joystick_preset;
+ 
+--- a/source/interface/ui_widget_event_handler_functions.c
++++ b/source/interface/ui_widget_event_handler_functions.c
+@@ -4220,7 +4220,7 @@
+ 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 4005, option_spinner, "expected 'look sensitivity' option spinner list");
+ 		{
+ 			long selected_index = option_spinner->data3C.selected_index;
+-			if (selected_index >= 0 && selected_index <= 9)
++			if (selected_index >= 0 && selected_index < NUMBER_OF_LOOK_SENSITIVITY_SETTINGS)
+ 				profile->controller_settings.look_sensitivity = (byte)(option_spinner->data3C.selected_index + 1);
+ 			else
+ 				error(2, "unknown option selected for look sensitivity");
+@@ -4675,7 +4675,7 @@
+ 		while (option_spinner && option_spinner->type != 2)
+ 			option_spinner = option_spinner->next;
+ 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 3865, option_spinner, "expected 'look sensitivity' option spinner list");
+-		if (profile->controller_settings.look_sensitivity > 0 && profile->controller_settings.look_sensitivity <= 10)
++		if (profile->controller_settings.look_sensitivity > 0 && profile->controller_settings.look_sensitivity <= NUMBER_OF_LOOK_SENSITIVITY_SETTINGS)
+ 			option_spinner->data3C.selected_index = profile->controller_settings.look_sensitivity - 1;
+ 		else
+ 			option_spinner->data3C.selected_index = 0;
+--- a/source/saved games/player_profile.h
++++ b/source/saved games/player_profile.h
+@@ -20,7 +20,7 @@
+ 	MAXIMUM_PLAYER_PROFILE_NAME_LENGTH = 12,
+ 	NUMBER_OF_SINGLE_PLAYER_LEVELS = 10,
+ 	NUMBER_OF_DEFAULT_PROFILES = 2,
+-	NUMBER_OF_LOOK_SENSITIVITY_SETTINGS = 10
++	NUMBER_OF_LOOK_SENSITIVITY_SETTINGS = 30
+ };
+ 
+ enum
+--- a/tools/test_porting_actions.py
++++ b/tools/test_porting_actions.py
+@@ -24,7 +24,11 @@
+  static final int LEFT=TouchLayout.LEFT;
+  TouchLayout layout=new TouchLayout();StartupCheats startupCheats;
+  int menuContext=1,menuPage=6,revision,selectedControl,requestCount,lastCheat,lastStatus;
+- boolean editing,visible;float sensitivity=1,appliedFov;
++ boolean editing,visible;float sensitivity=1,gamepadSensitivity,mouseSensitivity,appliedFov;
++ static final float TOUCH_MAX_SENSITIVITY=20f,GAMEPAD_MAX_SENSITIVITY=30f,MOUSE_MAX_SENSITIVITY=30f;
++ static class Preferences {PrefsEditor edit(){return new PrefsEditor();}}
++ static class PrefsEditor {PrefsEditor putFloat(String k,float v){return this;}void apply(){}}
++ Preferences preferences=new Preferences();
+  String title;String[] labels;int[] actions,values;
+  static class Owners {int size(){return 0;}} Owners owners=new Owners();
+  static class Device {boolean hasVibrator(){return true;}} Device vibrator=new Device(),gyroscope=new Device();
+@@ -35,6 +39,7 @@
+  int nativeCheatStatus(int id){return lastStatus;}
+  boolean nativeCheatRequest(int id,boolean enabled){requestCount++;lastCheat=id;lastStatus=enabled?1:0;return true;}
+  void nativeFieldOfView(float degrees){appliedFov=degrees;}
++ void nativeAimSensitivity(float gamepad,float mouse){}
+  void nativeMenuPublish(int r,int p,boolean e,String t,String[] l,int[] a,int[] v){title=t;labels=l;actions=a;values=v;}
+  static void check(boolean ok,String why){if(!ok)throw new AssertionError(why);}
+ '''
+@@ -57,6 +62,14 @@
+    t.applyMenuAction(43,1000);check(t.layout.fieldOfView==90 && t.appliedFov==90 && t.values[0]==1000,"FOV upper endpoint");
+    t.applyMenuAction(43,-100);check(t.layout.fieldOfView==55 && t.appliedFov==55,"FOV clamps lower endpoint");
+    t.applyMenuAction(90,0);check(t.menuPage==3,"FOV Back returns to General");
++   t.menuPage=14;t.publishMenu();
++   check(t.actions[0]==44 && t.actions[1]==40 && t.actions[2]==45 &&
++       t.values[0]==0 && t.values[2]==0, "Aim menu starts with inherited settings");
++   t.applyMenuAction(44,1000);check(t.gamepadSensitivity==30f && t.values[0]==1000,"Gamepad slider reaches 30x");
++   t.applyMenuAction(40,1000);check(t.sensitivity==20f && t.values[1]==1000,"Touch slider reaches 20x");
++   t.applyMenuAction(45,1000);check(t.mouseSensitivity==30f && t.values[2]==1000,"Mouse slider reaches 30x");
++   t.applyMenuAction(44,0);t.applyMenuAction(45,0);
++   check(t.gamepadSensitivity==0f && t.mouseSensitivity==0f,"Sliders can restore game settings");
+    t.menuPage=2;t.applyMenuAction(33,0);check(t.layout.overlayDisabled && t.labels[4].endsWith("ON"),"Disable all overlay toggles on");
+    t.applyMenuAction(33,0);check(!t.layout.overlayDisabled,"Overlay can be restored through menus");
+    System.out.println("Main/pause cheat routing, General, FOV endpoints and global overlay toggle passed");
+--- a/tools/tests/TouchLayoutTest.java
++++ b/tools/tests/TouchLayoutTest.java
+@@ -63,6 +63,10 @@
+         imported.layout.bounds(1200, 540);
+         check(imported.sensitivity == 2.25f && imported.layout.size() == 20,
+               "Configuration must preserve sensitivity and duplicates");
++        check(TouchLayout.importConfiguration(wide.exportConfiguration(20f)).sensitivity == 20f,
++              "20x touch sensitivity must round-trip");
++        reject(wide.exportConfiguration(20f).replace("sensitivity=20.0", "sensitivity=20.01"));
++
+         for (int i = 0; i < wide.size(); i++) {
+             check(imported.layout.type(i) == wide.type(i) && imported.layout.shown(i) == wide.shown(i)
+                 && Math.abs(imported.layout.x(i)-wide.x(i)) < 0.001f
+--- a/docs/android_aim_sensitivity.md
++++ b/docs/android_aim_sensitivity.md
+@@ -0,0 +1,28 @@
++# Android: sensibilidad de mando, pantalla y ratón (2026-10-11)
++
++**Cómo entrar:** Halo Android > Porting options > Aim sensitivity.
++
++| Ajuste | Nuevo máximo | Qué modifica |
++| --- | --- | --- |
++| Gamepad | nivel 30 | Velocidad del joystick derecho al apuntar. Los antiguos niveles 1-10 conservan la misma velocidad; 11-30 prolongan la curva del juego. |
++| Touch screen | 20x | Movimiento de la cámara al arrastrar el dedo. Antes el límite era 4x. |
++| Mouse | 30x | Sensibilidad real de movimiento relativo del ratón, en horizontal y vertical. |
++
++El mando y el ratón empiezan en **game setting** (extremo izquierdo de sus barras). En esa posición siguen respetando la configuración del juego que el usuario ya tenía. Si mueves cualquiera de sus barras a la derecha, la nueva configuración de Porting options pasa a prevalecer para ese dispositivo. Si vuelves al extremo izquierdo, se desactiva la modificación adicional y se recupera el ajuste guardado en el juego.
++
++El **nivel 30 del mando no significa multiplicar por treinta** la velocidad original: se prolongan las velocidades del Halo original, que pasaban de 80 a 260 grados/segundo en horizontal entre los niveles 1 y 10. El nivel 30 usa 660 grados/segundo de velocidad horizontal base. El ratón, en cambio, sí usa un multiplicador directo de su desplazamiento relativo; la pantalla también aplica su factor directamente a los movimientos táctiles.
++
++La pantalla táctil mantiene su valor anterior guardado, incluidos los diseños exportados en `.halolayout`; ahora acepta 0.25x a 20x. Las opciones **Gyroscope sensitivity** (0.25x-4x), tamaños de controles y FOV no cambian. Los ajustes de mando y ratón se guardan independientemente en las preferencias Android de la aplicación; los diseños `.halolayout` siguen exportando exclusivamente los ajustes de pantalla y demás opciones de su formato existente.
++
++Además, en el menú habitual de ajustes de jugador se amplía **Controller > Look sensitivity** de 1-10 a 1-30. El menú habitual **Mouse settings** también incluye valores hasta 30x en horizontal y vertical. Son accesibles con teclado y ratón o con el mando. Si se activa el valor de ratón desde Porting options, su valor único se aplica por igual a ambos ejes y reemplaza temporalmente la configuración horizontal/vertical habitual. Para recuperar ajustes independientes de los ejes vuelve a situar **Mouse** en **game setting** dentro de Porting options.
++
++## Comprobación en el teléfono
++
++1. Empieza con Gamepad y Mouse en **game setting**, para comprobar que funcionan exactamente como antes.
++2. En **Aim sensitivity**, mueve Touch screen hacia 20x. Apunta arrastrando el dedo y comprueba que el giro es más rápido; cierra y abre la app para verificar que se guarda.
++3. Selecciona, por ejemplo, Gamepad nivel 15. Prueba el joystick derecho y luego nivel 30. Prueba con el perfil de mando que ya utilizabas.
++4. Conecta tu ratón USB o Bluetooth; selecciona Mouse 5x, después 30x. Prueba ambos ejes sin tocar la pantalla. Comprueba que la captura de ratón sigue funcionando.
++5. Devuelve Gamepad y Mouse al extremo izquierdo y comprueba que reaparecen los ajustes originales del juego.
++6. Exporta e importa un diseño táctil con sensibilidad 20x, y verifica que el valor se recupera.
++
++**Compilación:** el proyecto incluye `.github/workflows/build.yml`. En GitHub, después de subir estos cambios al código de la rama principal, accede a Actions > Android build > Run workflow o espera a que termine la compilación automática. Descarga los artefactos de depuración o release del run completado. No se ha generado un APK en este entorno; hay que comprobar el APK compilado en hardware Android real.
