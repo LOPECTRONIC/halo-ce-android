@@ -4220,7 +4220,7 @@ static boolean player_profile_change_advanced_controller_settings(
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 4005, option_spinner, "expected 'look sensitivity' option spinner list");
 		{
 			long selected_index = option_spinner->data3C.selected_index;
-			if (selected_index >= 0 && selected_index <= 9)
+			if (selected_index >= 0 && selected_index < NUMBER_OF_LOOK_SENSITIVITY_SETTINGS)
 				profile->controller_settings.look_sensitivity = (byte)(option_spinner->data3C.selected_index + 1);
 			else
 				error(2, "unknown option selected for look sensitivity");
@@ -4675,7 +4675,7 @@ static boolean player_profile_initialize_advanced_controller_settings(
 		while (option_spinner && option_spinner->type != 2)
 			option_spinner = option_spinner->next;
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 3865, option_spinner, "expected 'look sensitivity' option spinner list");
-		if (profile->controller_settings.look_sensitivity > 0 && profile->controller_settings.look_sensitivity <= 10)
+		if (profile->controller_settings.look_sensitivity > 0 && profile->controller_settings.look_sensitivity <= NUMBER_OF_LOOK_SENSITIVITY_SETTINGS)
 			option_spinner->data3C.selected_index = profile->controller_settings.look_sensitivity - 1;
 		else
 			option_spinner->data3C.selected_index = 0;

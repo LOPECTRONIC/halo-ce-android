@@ -102,7 +102,7 @@ final class TouchLayout {
     }
 
     String exportConfiguration(float sensitivity) {
-        if (!validSensitivity(sensitivity) || !validSensitivity(gyroscopeSensitivity)) throw new IllegalArgumentException("Invalid sensitivity");
+        if (!validLookSensitivity(sensitivity) || !validGyroscopeSensitivity(gyroscopeSensitivity)) throw new IllegalArgumentException("Invalid sensitivity");
         Properties values = new Properties();
         values.setProperty("format", "halo-touch-layout");
         values.setProperty("version", "4");
@@ -136,7 +136,11 @@ final class TouchLayout {
         }
     }
 
-    private static boolean validSensitivity(float value) {
+    private static boolean validLookSensitivity(float value) {
+        return Float.isFinite(value) && value >= 0.25f && value <= 20f;
+    }
+
+    private static boolean validGyroscopeSensitivity(float value) {
         return Float.isFinite(value) && value >= 0.25f && value <= 4f;
     }
 
@@ -151,7 +155,7 @@ final class TouchLayout {
                 throw new IllegalArgumentException("Unsupported layout file");
             int count = Integer.parseInt(values.getProperty("count"));
             float sensitivity = Float.parseFloat(values.getProperty("sensitivity"));
-            if (count < 18 || count > MAX_CONTROLS || !validSensitivity(sensitivity))
+            if (count < 18 || count > MAX_CONTROLS || !validLookSensitivity(sensitivity))
                 throw new IllegalArgumentException("Invalid layout settings");
             TouchLayout layout = new TouchLayout();
             layout.controls.clear();
@@ -167,7 +171,7 @@ final class TouchLayout {
                 if ("3".equals(version) || "4".equals(version)) {
                     layout.fpsCounter = readBoolean(values, "fps-counter");
                     layout.gyroscopeSensitivity = Float.parseFloat(values.getProperty("gyroscope-sensitivity"));
-                    if (!validSensitivity(layout.gyroscopeSensitivity))
+                    if (!validGyroscopeSensitivity(layout.gyroscopeSensitivity))
                         throw new IllegalArgumentException("Invalid gyroscope sensitivity");
                 }
             }

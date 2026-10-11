@@ -63,6 +63,10 @@ public final class TouchLayoutTest {
         imported.layout.bounds(1200, 540);
         check(imported.sensitivity == 2.25f && imported.layout.size() == 20,
               "Configuration must preserve sensitivity and duplicates");
+        check(TouchLayout.importConfiguration(wide.exportConfiguration(20f)).sensitivity == 20f,
+              "20x touch sensitivity must round-trip");
+        reject(wide.exportConfiguration(20f).replace("sensitivity=20.0", "sensitivity=20.01"));
+
         for (int i = 0; i < wide.size(); i++) {
             check(imported.layout.type(i) == wide.type(i) && imported.layout.shown(i) == wide.shown(i)
                 && Math.abs(imported.layout.x(i)-wide.x(i)) < 0.001f

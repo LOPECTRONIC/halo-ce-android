@@ -1118,6 +1118,21 @@ static void get_local_player_input_blob(
 				}
 			}
 
+#ifdef HALO_ANDROID
+            /* Absolute sensitivity 1..30, matching the controller profile's
+               turn-rate curve. Zero leaves the original saved profile in charge.
+               This affects sticks only, not direct touch/mouse aiming. */
+            if (gamepad_index == 0)
+            {
+                extern float host_touch_gamepad_sensitivity(void);
+                real override = host_touch_gamepad_sensitivity();
+                if (override >= 1.f && override <= 30.f)
+                {
+                    look_yaw_rate = DEGREES_TO_RADIANS(60.f + 20.f*override)/TICKS_PER_SECOND;
+                    look_pitch_rate = DEGREES_TO_RADIANS(30.f + 10.f*override)/TICKS_PER_SECOND;
+                }
+            }
+#endif
 			input->throttle.i = input_state->forward_movement;
 			input->throttle.j = input_state->strafe;
 			{

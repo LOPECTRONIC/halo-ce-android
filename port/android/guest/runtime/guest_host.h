@@ -79,6 +79,8 @@ void host_touch_rumble(unsigned int low, unsigned int high);
 void host_touch_look_read(float *delta);
 int host_touch_camera_read(void);
 float host_touch_field_of_view(void);
+float host_touch_gamepad_sensitivity(void);
+float host_touch_mouse_sensitivity(void);
 unsigned int host_touch_cheats_read(int *commands);
 void host_touch_cheat_result(int id, int status);
 void host_touch_cheat_sync(int id, int active);

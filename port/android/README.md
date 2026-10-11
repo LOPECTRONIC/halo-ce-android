@@ -154,7 +154,7 @@ bitmap is selected from the current map and fills the entire widescreen area.
   **Export** and **Import** retain Android's document picker. The button
   manager lets you hide/show, duplicate and add buttons, including restoring
   the movement stick. Reset requires confirmation. Size sliders range from
-  50% to 200%; look sensitivity ranges from 0.25x to 4x. All controls,
+  50% to 200%; look sensitivity ranges from 0.25x to 20x. All controls,
   including copies, can be reached by scrolling without Previous/Next pages.
 - **General** contains **Rumble**, **Gyroscope**, **Gyroscope sensitivity**,
   **FPS counter** and **Field of view (FOV)**. FOV uses a 55Ã¢â‚¬â€œ90 degree slider
@@ -164,6 +164,14 @@ bitmap is selected from the current map and fills the entire widescreen area.
   horizontal slider from 0.25x to 4x, independent of swipe look sensitivity.
   Gyro handles both landscape orientations. FPS measures presented game
   frames over half-second intervals and displays during gameplay.
+- **Aim sensitivity** (new) contains separate sliders for **Gamepad** (levels
+  1-30), **Touch screen** (0.25x-20x) and **Mouse** (0.25x-30x).
+  The gamepad and mouse start at **game setting**, preserving existing profiles
+  and mouse configuration until adjusted in this menu; dragging fully left
+  restores the original in-game setting. Mouse override applies to both axes.
+  Gamepad speeds 1-10 retain the original engine curve, extended to 30; 30 is
+  a speed level, not a 30-fold rate multiplier. Existing overlay layouts still
+  import without changes. See `docs/android_aim_sensitivity.md` for details.
 - **Cheats** in the main menu selects startup cheats in a dedicated `init.txt`
   block, with all sixteen disabled initially and other file contents preserved.
   Flags apply after player spawn; instant actions run once per map (teleport
@@ -186,7 +194,7 @@ Zoom switches once per press, including when held across several frames.
 Swipe aiming uses the same **Look sensitivity** setting as the player camera
 (default **2x** for new configurations; existing preferences are preserved).
 The sensitivity slider can be dragged beyond either edge to reach its full
-0.25xâ€“4x range. Fire/Grenade control vertical camera movement.
+0.25x–20x range. Fire/Grenade control vertical camera movement.
 
 Version 4 `.halolayout` files include the Camera mode control. Imports of
 versions 1Ã¢â‚¬â€œ3 insert it without losing existing positions or button copies.

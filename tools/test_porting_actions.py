@@ -24,7 +24,11 @@ public class PortingActionsTest {
  static final int LEFT=TouchLayout.LEFT;
  TouchLayout layout=new TouchLayout();StartupCheats startupCheats;
  int menuContext=1,menuPage=6,revision,selectedControl,requestCount,lastCheat,lastStatus;
- boolean editing,visible;float sensitivity=1,appliedFov;
+ boolean editing,visible;float sensitivity=1,gamepadSensitivity,mouseSensitivity,appliedFov;
+ static final float TOUCH_MAX_SENSITIVITY=20f,GAMEPAD_MAX_SENSITIVITY=30f,MOUSE_MAX_SENSITIVITY=30f;
+ static class Preferences {PrefsEditor edit(){return new PrefsEditor();}}
+ static class PrefsEditor {PrefsEditor putFloat(String k,float v){return this;}void apply(){}}
+ Preferences preferences=new Preferences();
  String title;String[] labels;int[] actions,values;
  static class Owners {int size(){return 0;}} Owners owners=new Owners();
  static class Device {boolean hasVibrator(){return true;}} Device vibrator=new Device(),gyroscope=new Device();
@@ -35,6 +39,7 @@ public class PortingActionsTest {
  int nativeCheatStatus(int id){return lastStatus;}
  boolean nativeCheatRequest(int id,boolean enabled){requestCount++;lastCheat=id;lastStatus=enabled?1:0;return true;}
  void nativeFieldOfView(float degrees){appliedFov=degrees;}
+ void nativeAimSensitivity(float gamepad,float mouse){}
  void nativeMenuPublish(int r,int p,boolean e,String t,String[] l,int[] a,int[] v){title=t;labels=l;actions=a;values=v;}
  static void check(boolean ok,String why){if(!ok)throw new AssertionError(why);}
 '''
@@ -57,6 +62,14 @@ code += r'''
    t.applyMenuAction(43,1000);check(t.layout.fieldOfView==90 && t.appliedFov==90 && t.values[0]==1000,"FOV upper endpoint");
    t.applyMenuAction(43,-100);check(t.layout.fieldOfView==55 && t.appliedFov==55,"FOV clamps lower endpoint");
    t.applyMenuAction(90,0);check(t.menuPage==3,"FOV Back returns to General");
+   t.menuPage=14;t.publishMenu();
+   check(t.actions[0]==44 && t.actions[1]==40 && t.actions[2]==45 &&
+       t.values[0]==0 && t.values[2]==0, "Aim menu starts with inherited settings");
+   t.applyMenuAction(44,1000);check(t.gamepadSensitivity==30f && t.values[0]==1000,"Gamepad slider reaches 30x");
+   t.applyMenuAction(40,1000);check(t.sensitivity==20f && t.values[1]==1000,"Touch slider reaches 20x");
+   t.applyMenuAction(45,1000);check(t.mouseSensitivity==30f && t.values[2]==1000,"Mouse slider reaches 30x");
+   t.applyMenuAction(44,0);t.applyMenuAction(45,0);
+   check(t.gamepadSensitivity==0f && t.mouseSensitivity==0f,"Sliders can restore game settings");
    t.menuPage=2;t.applyMenuAction(33,0);check(t.layout.overlayDisabled && t.labels[4].endsWith("ON"),"Disable all overlay toggles on");
    t.applyMenuAction(33,0);check(!t.layout.overlayDisabled,"Overlay can be restored through menus");
    System.out.println("Main/pause cheat routing, General, FOV endpoints and global overlay toggle passed");

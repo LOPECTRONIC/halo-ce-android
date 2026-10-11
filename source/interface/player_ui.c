@@ -1015,16 +1015,7 @@ static void set_local_player_controls_from_player_profile(
 	short local_player_index)
 {
 	struct game_input_preferences preferences = { 0 };
-	real pitch_rate_table[NUMBER_OF_LOOK_SENSITIVITY_SETTINGS] =
-	{
-		40.0f, 50.0f, 60.0f, 70.0f, 80.0f,
-		90.0f, 100.0f, 110.0f, 120.0f, 130.0f
-	};
-	real yaw_rate_table[NUMBER_OF_LOOK_SENSITIVITY_SETTINGS] =
-	{
-		80.0f, 100.0f, 120.0f, 140.0f, 160.0f,
-		180.0f, 200.0f, 220.0f, 240.0f, 260.0f
-	};
+	/* Preserve the original ten speeds and continue the same curve to 30. */
 	struct player_profile_controller_settings *controls;
 	long look_sensitivity;
 	long yaw_index;
@@ -1061,8 +1052,8 @@ static void set_local_player_controls_from_player_profile(
 			yaw_index = NUMBER_OF_LOOK_SENSITIVITY_SETTINGS - 1;
 	}
 
-	preferences.pitch_rate = pitch_rate_table[pitch_index];
-	preferences.yaw_rate = yaw_rate_table[(short)yaw_index];
+	preferences.pitch_rate = 40.0f + 10.0f * pitch_index;
+	preferences.yaw_rate = 80.0f + 20.0f * (short)yaw_index;
 	preferences.joystick_controls = controls->joystick_preset > _joystick_preset_legacy_south_paw ?
 		_joystick_preset_legacy_south_paw : controls->joystick_preset;
 

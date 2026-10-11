@@ -165,8 +165,23 @@ int halo_linux_mouse_look(short gamepad_index, float *yaw, float *pitch)
 #endif
 	if (x == 0.0f && y == 0.0f)
 		return *yaw != 0.0f || *pitch != 0.0f;
+#ifdef HALO_ANDROID
+    /* Android's Porting options can override the old mouse setting, in both axes.
+       Zero preserves config.toml and its separate vertical preference. */
+    {
+        float override = host_touch_mouse_sensitivity();
+        if (override > 0.0f) {
+            *yaw += -x * scale * override;
+            *pitch += (invert ? y : -y) * scale * override;
+        } else {
+            *yaw += -x * scale * mouse_sensitivity();
+            *pitch += (invert ? y : -y) * scale * vertical_sensitivity;
+        }
+    }
+#else
 	*yaw += -x * scale * mouse_sensitivity();
 	*pitch += (invert ? y : -y) * scale * vertical_sensitivity;
+#endif
 	return TRUE;
 }
 

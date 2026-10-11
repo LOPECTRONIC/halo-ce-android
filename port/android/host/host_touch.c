@@ -21,6 +21,38 @@ static struct halo_porting_menu porting_menu;
 static int frame_count, frame_fps;
 static struct timespec frame_time;
 static float field_of_view = 70.0f;
+/* A zero override defers to the original saved profile/config.toml setting. */
+static float gamepad_sensitivity_override, mouse_sensitivity_override;
+
+JNIEXPORT void JNICALL Java_com_halo_decomp_TouchControls_nativeAimSensitivity(
+    JNIEnv *env, jclass cls, jfloat gamepad, jfloat mouse)
+{
+    (void)env; (void)cls;
+    if (!(gamepad == 0.0f || (gamepad >= 1.0f && gamepad <= 30.0f)) ||
+        !(mouse == 0.0f || (mouse >= 0.25f && mouse <= 30.0f))) return;
+    pthread_mutex_lock(&touch_lock);
+    gamepad_sensitivity_override = gamepad;
+    mouse_sensitivity_override = mouse;
+    pthread_mutex_unlock(&touch_lock);
+}
+
+float host_touch_gamepad_sensitivity(void)
+{
+    float value;
+    pthread_mutex_lock(&touch_lock);
+    value = gamepad_sensitivity_override;
+    pthread_mutex_unlock(&touch_lock);
+    return value;
+}
+
+float host_touch_mouse_sensitivity(void)
+{
+    float value;
+    pthread_mutex_lock(&touch_lock);
+    value = mouse_sensitivity_override;
+    pthread_mutex_unlock(&touch_lock);
+    return value;
+}
 
 JNIEXPORT void JNICALL Java_com_halo_decomp_TouchControls_nativeFieldOfView(
     JNIEnv *env, jclass cls, jfloat degrees)
@@ -72,7 +104,7 @@ void host_porting_menu_read(struct halo_porting_menu *menu)
 void host_porting_action(int revision, int action, int value)
 {
     pthread_mutex_lock(&touch_lock);
-    int slider = action >= 40 && action <= 43;
+    int slider = action >= 40 && action <= 45;
     int valid_slider = 0;
     if (slider && porting_menu.page) {
         for (int i = 0; i < porting_menu.count; ++i)

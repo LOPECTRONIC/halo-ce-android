@@ -95,9 +95,15 @@ public final class TouchControls extends View implements SensorEventListener {
     private int lookPointer = -1;
     private float lookX, lookY;
     private float sensitivity;
+    // Zero means the original in-game setting remains in control.
+    private float gamepadSensitivity, mouseSensitivity;
+    private static final float TOUCH_MAX_SENSITIVITY = 20f;
+    private static final float GAMEPAD_MAX_SENSITIVITY = 30f;
+    private static final float MOUSE_MAX_SENSITIVITY = 30f;
     private float logicalWidth = 960, logicalHeight = 540;
     private static native void nativeLook(float dx, float dy);
     private static native void nativeLookReset();
+    private static native void nativeAimSensitivity(float gamepad, float mouse);
     private static native void nativeCameraMode();
     private static native boolean nativeCheatRequest(int id, boolean enabled);
     private static native int nativeCheatStatus(int id);
@@ -146,7 +152,13 @@ public final class TouchControls extends View implements SensorEventListener {
                                       preferences.getFloat("y"+i, layout.y(i)));
         }
         sensitivity = preferences.getFloat("look-sensitivity", sensitivity > 0 ? sensitivity : 2f);
-        if (!Float.isFinite(sensitivity) || sensitivity < 0.25f || sensitivity > 4f) sensitivity = 2f;
+        if (!Float.isFinite(sensitivity) || sensitivity < 0.25f || sensitivity > TOUCH_MAX_SENSITIVITY) sensitivity = 2f;
+        gamepadSensitivity = preferences.getFloat("gamepad-sensitivity", 0f);
+        mouseSensitivity = preferences.getFloat("mouse-sensitivity", 0f);
+        if (!Float.isFinite(gamepadSensitivity) || gamepadSensitivity != 0f &&
+                (gamepadSensitivity < 1f || gamepadSensitivity > GAMEPAD_MAX_SENSITIVITY)) gamepadSensitivity = 0f;
+        if (!Float.isFinite(mouseSensitivity) || mouseSensitivity != 0f &&
+                (mouseSensitivity < 0.25f || mouseSensitivity > MOUSE_MAX_SENSITIVITY)) mouseSensitivity = 0f;
         setFocusable(false);
         setContentDescription("Halo touch controller");
         setOnApplyWindowInsetsListener((view, insets) -> {
@@ -467,7 +479,7 @@ public final class TouchControls extends View implements SensorEventListener {
             return;
         } else if (action == 90) {
             if (menuPage == 1) menuPage = 0;
-            else if (menuPage == 2 || menuPage == 3 || menuPage == 6) menuPage = 1;
+            else if (menuPage == 2 || menuPage == 3 || menuPage == 6 || menuPage == 14) menuPage = 1;
             else if (menuPage == 5 || menuPage == 13) menuPage = 3;
             else if (menuPage == 9 || menuPage == 10 || menuPage == 11) menuPage = 7;
             else if (menuPage == 12) menuPage = 8;
@@ -488,9 +500,20 @@ public final class TouchControls extends View implements SensorEventListener {
         else if (action == 31) { layout.gyroscopeEnabled = !layout.gyroscopeEnabled; updateSensors(); saveLayout(); }
         else if (action == 32) { layout.fpsCounter = !layout.fpsCounter; saveLayout(); }
         else if (action == 40 || action == 41) {
-            float amount = 0.25f+Math.max(0, Math.min(1000, value))*3.75f/1000;
+            float maximum = action == 40 ? TOUCH_MAX_SENSITIVITY : 4f;
+            float amount = 0.25f+Math.max(0, Math.min(1000, value))*(maximum-0.25f)/1000f;
             if (action == 40) sensitivity = amount; else layout.gyroscopeSensitivity = amount;
             saveLayout();
+        } else if (action == 44 || action == 45) {
+            // The left endpoint clears the override and restores the game's own setting.
+            int progress = Math.max(0, Math.min(1000, value));
+            float minimum = action == 44 ? 1f : 0.25f;
+            float maximum = action == 44 ? GAMEPAD_MAX_SENSITIVITY : MOUSE_MAX_SENSITIVITY;
+            float amount = progress == 0 ? 0f : minimum+(progress-1)*(maximum-minimum)/999f;
+            if (action == 44) gamepadSensitivity = amount; else mouseSensitivity = amount;
+            nativeAimSensitivity(gamepadSensitivity, mouseSensitivity);
+            preferences.edit().putFloat("gamepad-sensitivity", gamepadSensitivity)
+                .putFloat("mouse-sensitivity", mouseSensitivity).apply();
         } else if (action == 42) {
             layout.setSize(selectedControl, 0.5f+Math.max(0, Math.min(1000, value))*1.5f/1000); saveLayout();
         } else { menuPage = action; }
@@ -514,7 +537,7 @@ public final class TouchControls extends View implements SensorEventListener {
         };
         String title = "Porting options";
         if (menuPage == 1) {
-            row.accept("Overlay settings", 2); row.accept("General", 3); row.accept("Cheats", 6);
+            row.accept("Overlay settings", 2); row.accept("General", 3); row.accept("Aim sensitivity", 14); row.accept("Cheats", 6);
         } else if (menuPage == 2) {
             title = "Overlay settings";
             row.accept("Edit buttons layout", 12); row.accept("Hide or add buttons", 7);
@@ -527,6 +550,18 @@ public final class TouchControls extends View implements SensorEventListener {
             row.accept("Gyroscope: "+(gyroscope == null ? "unavailable" : layout.gyroscopeEnabled ? "ON" : "OFF"), gyroscope == null ? 0 : 31);
             row.accept("Gyroscope sensitivity", 5); row.accept("FPS counter: "+(layout.fpsCounter ? "ON" : "OFF"), 32);
             row.accept("Field of view (FOV)", 13);
+        } else if (menuPage == 14) {
+            title = "Aim sensitivity";
+            row.accept(String.format(java.util.Locale.US, "Gamepad: %s",
+                gamepadSensitivity == 0f ? "game setting" : String.format(java.util.Locale.US, "level %.2f", gamepadSensitivity)), 44);
+            values.set(0, gamepadSensitivity == 0f ? 0 : 1+Math.round((gamepadSensitivity-1f)/
+                (GAMEPAD_MAX_SENSITIVITY-1f)*999f));
+            row.accept(String.format(java.util.Locale.US, "Touch screen: %.2fx", sensitivity), 40);
+            values.set(1, Math.round((sensitivity-0.25f)/(TOUCH_MAX_SENSITIVITY-0.25f)*1000f));
+            row.accept(String.format(java.util.Locale.US, "Mouse: %s",
+                mouseSensitivity == 0f ? "game setting" : String.format(java.util.Locale.US, "%.2fx", mouseSensitivity)), 45);
+            values.set(2, mouseSensitivity == 0f ? 0 : 1+Math.round((mouseSensitivity-0.25f)/
+                (MOUSE_MAX_SENSITIVITY-0.25f)*999f));
         } else if (menuPage == 13) {
             title = "Field of view (FOV)";
             row.accept(String.format(java.util.Locale.US, "FOV: %.0f degrees", layout.fieldOfView), 43);
@@ -537,7 +572,8 @@ public final class TouchControls extends View implements SensorEventListener {
             float amount = size ? layout.sizeScale(selectedControl) : menuPage == 4 ? sensitivity : layout.gyroscopeSensitivity;
             row.accept(String.format(java.util.Locale.US, size ? "%s: %.0f%%" : "%s: %.2fx",
                 size ? controlName(layout.type(selectedControl)) : title, size ? amount*100 : amount), size ? 42 : menuPage == 4 ? 40 : 41);
-            values.set(0, Math.round((amount-(size ? 0.5f : 0.25f))/(size ? 1.5f : 3.75f)*1000));
+            values.set(0, Math.round((amount-(size ? 0.5f : 0.25f))/
+                (size ? 1.5f : menuPage == 4 ? TOUCH_MAX_SENSITIVITY-0.25f : 3.75f)*1000));
         } else if (menuPage == 6) {
             title = menuContext == 1 ? "Startup cheats" : "Cheats";
             for (int i = 0; i < CHEATS.length; i++) {
@@ -597,6 +633,7 @@ public final class TouchControls extends View implements SensorEventListener {
     public void startDeviceInput() {
         if (deviceInputActive) return;
         deviceInputActive = true;
+        nativeAimSensitivity(gamepadSensitivity, mouseSensitivity);
         nativeFieldOfView(layout.fieldOfView);
         gyroAim.reset(); updateSensors(); post(rumblePoll); post(menuPoll);
     }
